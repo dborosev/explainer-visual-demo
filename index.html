@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Explainer Visual Demo — How Neural Networks Learn</title>
-  <script src="https://unpkg.com/roughjs@4.6.6/bundled/rough.cjs.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Inter:wght@400;600&display=swap');
 
@@ -16,19 +16,20 @@
       font-family: 'Inter', sans-serif;
       overflow: hidden;
       height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
     }
 
-    /* Top bar */
     .top-bar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 12px 24px;
+      padding: 10px 20px;
       background: rgba(0,0,0,0.3);
       border-bottom: 1px solid rgba(255,255,255,0.08);
       z-index: 10;
+      flex-shrink: 0;
     }
     .top-bar h1 {
       font-family: 'Caveat', cursive;
@@ -41,19 +42,36 @@
       color: rgba(255,255,255,0.5);
     }
 
-    /* Canvas area */
     .canvas-wrap {
       flex: 1;
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
-    }
-    canvas {
-      border-radius: 12px;
+      overflow: hidden;
     }
 
-    /* Text overlays */
+    .scene-container {
+      position: relative;
+      width: 900px;
+      height: 550px;
+      transform-origin: center center;
+    }
+
+    canvas {
+      display: block;
+      width: 900px;
+      height: 550px;
+    }
+
+    #overlays {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 900px;
+      height: 550px;
+    }
+
     .overlay-text {
       position: absolute;
       font-family: 'Caveat', cursive;
@@ -98,30 +116,35 @@
       color: #50fa7b;
     }
 
-    /* Bottom controls */
     .controls {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 16px;
-      padding: 16px;
+      padding: 14px;
       background: rgba(0,0,0,0.3);
       border-top: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
     }
     .controls button {
       background: rgba(126,200,227,0.15);
       border: 1px solid rgba(126,200,227,0.3);
       color: #7ec8e3;
-      padding: 10px 28px;
+      padding: 12px 32px;
       border-radius: 8px;
-      font-size: 15px;
+      font-size: 16px;
       font-family: 'Inter', sans-serif;
       cursor: pointer;
       transition: all 0.2s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
     .controls button:hover {
       background: rgba(126,200,227,0.25);
       border-color: rgba(126,200,227,0.5);
+    }
+    .controls button:active {
+      background: rgba(126,200,227,0.35);
     }
     .controls button:disabled {
       opacity: 0.3;
@@ -151,40 +174,57 @@
   <span class="scene-label" id="sceneLabel">Scene 1 / 5</span>
 </div>
 
-<div class="canvas-wrap">
-  <canvas id="canvas" width="900" height="550"></canvas>
-  <div id="overlays"></div>
+<div class="canvas-wrap" id="canvasWrap">
+  <div class="scene-container" id="sceneContainer">
+    <canvas id="canvas" width="900" height="550"></canvas>
+    <div id="overlays"></div>
+  </div>
 </div>
 
 <div class="controls">
-  <button id="prevBtn" disabled>← Prev</button>
+  <button id="prevBtn" disabled>&larr; Prev</button>
   <div class="progress-dots" id="dots"></div>
-  <button id="nextBtn">Next →</button>
+  <button id="nextBtn">Next &rarr;</button>
 </div>
 
 <script>
+// ── Responsive scaling ────────────────────────────────
+const DESIGN_W = 900;
+const DESIGN_H = 550;
+const sceneContainer = document.getElementById('sceneContainer');
+const canvasWrap = document.getElementById('canvasWrap');
+
+function fitToScreen() {
+  const wrapW = canvasWrap.clientWidth;
+  const wrapH = canvasWrap.clientHeight;
+  const scaleX = wrapW / DESIGN_W;
+  const scaleY = wrapH / DESIGN_H;
+  const scale = Math.min(scaleX, scaleY, 1.2); // cap at 1.2x so it doesn't get huge
+  sceneContainer.style.transform = 'scale(' + scale + ')';
+}
+
+window.addEventListener('resize', fitToScreen);
+fitToScreen();
+
 // ── Setup ──────────────────────────────────────────────
-const canvas = document.getElementById('canvas');
-const rc = rough.canvas(canvas);
-const ctx = canvas.getContext('2d');
-const overlaysEl = document.getElementById('overlays');
-const sceneLabel = document.getElementById('sceneLabel');
-const prevBtn = document.getElementById('prevBtn');
-const nextBtn = document.getElementById('nextBtn');
-const dotsEl = document.getElementById('dots');
+var canvas = document.getElementById('canvas');
+var rc = rough.canvas(canvas);
+var ctx = canvas.getContext('2d');
+var overlaysEl = document.getElementById('overlays');
+var sceneLabel = document.getElementById('sceneLabel');
+var prevBtn = document.getElementById('prevBtn');
+var nextBtn = document.getElementById('nextBtn');
+var dotsEl = document.getElementById('dots');
 
-const W = canvas.width;
-const H = canvas.height;
-let currentScene = 0;
-const totalScenes = 5;
-
-// Animation state
-let animQueue = [];
-let animRunning = false;
+var W = canvas.width;
+var H = canvas.height;
+var currentScene = 0;
+var totalScenes = 5;
+var isTransitioning = false;
 
 // Build dots
-for (let i = 0; i < totalScenes; i++) {
-  const d = document.createElement('div');
+for (var i = 0; i < totalScenes; i++) {
+  var d = document.createElement('div');
   d.className = 'dot' + (i === 0 ? ' active' : '');
   dotsEl.appendChild(d);
 }
@@ -195,10 +235,10 @@ function clearCanvas() {
   overlaysEl.innerHTML = '';
 }
 
-function addOverlay(id, html, x, y, className = '') {
-  const div = document.createElement('div');
+function addOverlay(id, html, x, y, className) {
+  var div = document.createElement('div');
   div.id = id;
-  div.className = 'overlay-text ' + className;
+  div.className = 'overlay-text ' + (className || '');
   div.innerHTML = html;
   div.style.left = x + 'px';
   div.style.top = y + 'px';
@@ -206,200 +246,158 @@ function addOverlay(id, html, x, y, className = '') {
   return div;
 }
 
-function showOverlay(div, delay = 0) {
-  setTimeout(() => div.classList.add('visible'), delay);
+function showOverlay(div, delay) {
+  delay = delay || 0;
+  setTimeout(function() { div.classList.add('visible'); }, delay);
 }
 
 function wait(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
-
-// Animate drawing a rough shape with a reveal effect
-function drawAnimated(drawFn, duration = 600) {
-  return new Promise(resolve => {
-    const start = performance.now();
-    // Save what's on canvas before
-    const before = ctx.getImageData(0, 0, W, H);
-    // Draw the full shape
-    drawFn();
-    // Save what's on canvas after
-    const after = ctx.getImageData(0, 0, W, H);
-    // Restore before state
-    ctx.putImageData(before, 0, 0);
-
-    function frame(now) {
-      const t = Math.min((now - start) / duration, 1);
-      // Blend: put the 'after' image with increasing opacity
-      ctx.putImageData(before, 0, 0);
-      ctx.globalAlpha = t;
-      ctx.putImageData(after, 0, 0);
-      ctx.globalAlpha = 1;
-      if (t < 1) requestAnimationFrame(frame);
-      else resolve();
-    }
-    requestAnimationFrame(frame);
-  });
+  return new Promise(function(r) { setTimeout(r, ms); });
 }
 
 // ── Colors ─────────────────────────────────────────────
-const BLUE = '#7ec8e3';
-const YELLOW = '#ffd966';
-const GREEN = '#50fa7b';
-const PINK = '#ff79c6';
-const ORANGE = '#ffb86c';
-const WHITE = 'rgba(255,255,255,0.7)';
-const DIM = 'rgba(255,255,255,0.15)';
+var BLUE = '#7ec8e3';
+var YELLOW = '#ffd966';
+var GREEN = '#50fa7b';
+var PINK = '#ff79c6';
+var ORANGE = '#ffb86c';
+var WHITE = 'rgba(255,255,255,0.7)';
+var DIM = 'rgba(255,255,255,0.15)';
 
-const roughOpts = (color, fill = null) => ({
-  stroke: color,
-  strokeWidth: 2,
-  roughness: 1.5,
-  ...(fill ? { fill, fillStyle: 'hachure', fillWeight: 1.5, hachureGap: 8 } : {})
-});
+function roughOpts(color, fill) {
+  var opts = {
+    stroke: color,
+    strokeWidth: 2,
+    roughness: 1.5
+  };
+  if (fill) {
+    opts.fill = fill;
+    opts.fillStyle = 'hachure';
+    opts.fillWeight = 1.5;
+    opts.hachureGap = 8;
+  }
+  return opts;
+}
 
-// ── Scene Definitions ──────────────────────────────────
-
-async function scene0_title() {
-  // Title scene with decorative sketchy elements
+// ── Scene 0: Title ────────────────────────────────────
+function scene0_title() {
   clearCanvas();
 
-  // Draw some decorative sketchy elements
   rc.circle(120, 100, 60, roughOpts(DIM));
   rc.rectangle(700, 80, 80, 50, roughOpts(DIM));
   rc.line(50, 450, 150, 480, roughOpts(DIM));
   rc.circle(800, 430, 40, roughOpts(DIM));
   rc.line(750, 500, 850, 470, roughOpts(DIM));
 
-  // Draw a sketchy brain
   rc.ellipse(450, 240, 200, 160, roughOpts(BLUE));
-  // Squiggly brain lines
   rc.path('M 380 220 Q 420 200 450 230 Q 480 260 520 220', roughOpts(BLUE));
   rc.path('M 390 250 Q 430 270 460 240 Q 490 210 510 250', roughOpts(BLUE));
   rc.path('M 400 270 Q 440 290 470 260', roughOpts(BLUE));
 
-  // Small nodes around brain
-  const nodePositions = [
+  var nodePositions = [
     [340, 190], [350, 280], [550, 200], [540, 270],
     [370, 160], [530, 160], [450, 310]
   ];
-  for (const [x, y] of nodePositions) {
-    rc.circle(x, y, 12, roughOpts(YELLOW, YELLOW));
+  for (var i = 0; i < nodePositions.length; i++) {
+    rc.circle(nodePositions[i][0], nodePositions[i][1], 12, roughOpts(YELLOW, YELLOW));
   }
-  // Connect some nodes
   rc.line(340, 190, 370, 160, roughOpts(YELLOW));
   rc.line(550, 200, 530, 160, roughOpts(YELLOW));
   rc.line(350, 280, 450, 310, roughOpts(YELLOW));
 
-  await wait(200);
+  var t = addOverlay('title', 'How Neural Networks Learn', 140, 370, 'title-text');
+  t.style.width = '620px';
+  showOverlay(t, 200);
 
-  const t = addOverlay('title', 'How Neural Networks Learn', 200, 370, 'title-text');
-  showOverlay(t, 100);
+  var s = addOverlay('sub', 'a sketchy visual explainer', 250, 430, 'subtitle-text');
+  showOverlay(s, 700);
 
-  const s = addOverlay('sub', 'a sketchy visual explainer', 290, 430, 'subtitle-text');
-  showOverlay(s, 500);
+  return wait(100);
 }
 
-async function scene1_neurons() {
+// ── Scene 1: The Neuron ───────────────────────────────
+function scene1_neurons() {
   clearCanvas();
 
-  const lbl = addOverlay('lbl1', 'Scene 1: The Neuron', 30, 20, 'big-label');
+  var lbl = addOverlay('lbl1', 'Scene 1: The Neuron', 30, 15, 'big-label');
   showOverlay(lbl, 0);
 
-  // Draw a big neuron
-  await wait(300);
+  var inputs = [[100, 150], [100, 275], [100, 400]];
+  var inputLabels = ['x\u2081', 'x\u2082', 'x\u2083'];
 
-  // Input arrows
-  const inputs = [[100, 150], [100, 275], [100, 400]];
-  const inputLabels = ['x₁', 'x₂', 'x₃'];
-
-  for (let i = 0; i < inputs.length; i++) {
-    const [x, y] = inputs[i];
-    rc.circle(x, y, 40, roughOpts(YELLOW, YELLOW));
-    const il = addOverlay('in' + i, inputLabels[i], x + 30 + 12, y + 58, 'label-text');
+  for (var i = 0; i < inputs.length; i++) {
+    rc.circle(inputs[i][0], inputs[i][1], 40, roughOpts(YELLOW, YELLOW));
+    var il = addOverlay('in' + i, inputLabels[i], inputs[i][0] - 8, inputs[i][1] - 15, 'label-text');
     showOverlay(il, 200 + i * 200);
-    await wait(200);
   }
 
-  await wait(200);
-
-  // Draw arrows to neuron
-  for (const [x, y] of inputs) {
-    rc.line(x + 25, y, 370, 275, roughOpts(WHITE));
-    await wait(150);
+  for (var i = 0; i < inputs.length; i++) {
+    rc.line(inputs[i][0] + 25, inputs[i][1], 370, 275, roughOpts(WHITE));
   }
 
-  // Weight labels
-  const wLabels = ['w₁', 'w₂', 'w₃'];
-  const wYs = [185, 260, 340];
-  for (let i = 0; i < 3; i++) {
-    const wl = addOverlay('w' + i, wLabels[i], 260, wYs[i] + 55, 'label-text');
+  var wLabels = ['w\u2081', 'w\u2082', 'w\u2083'];
+  var wPositions = [[220, 195], [230, 268], [220, 340]];
+  for (var i = 0; i < 3; i++) {
+    var wl = addOverlay('w' + i, wLabels[i], wPositions[i][0], wPositions[i][1], 'label-text');
     wl.style.color = PINK;
-    showOverlay(wl, i * 150);
+    showOverlay(wl, 600 + i * 150);
   }
 
-  await wait(300);
-
-  // The neuron (sum + activation)
   rc.circle(420, 275, 100, roughOpts(BLUE, 'rgba(126,200,227,0.1)'));
-  const sigma = addOverlay('sigma', 'Σ → f', 395, 318, 'label-text');
+  var sigma = addOverlay('sigma', '\u03A3 \u2192 f', 395, 262, 'label-text');
   sigma.style.color = BLUE;
   sigma.style.fontSize = '32px';
-  showOverlay(sigma, 100);
+  showOverlay(sigma, 900);
 
-  await wait(400);
-
-  // Output arrow
   rc.line(475, 275, 650, 275, roughOpts(GREEN));
   rc.line(630, 260, 650, 275, roughOpts(GREEN));
   rc.line(630, 290, 650, 275, roughOpts(GREEN));
 
-  const out = addOverlay('out', 'output', 660, 318, 'label-text');
+  var out = addOverlay('out', 'output', 660, 262, 'label-text');
   out.style.color = GREEN;
-  showOverlay(out, 100);
+  showOverlay(out, 1100);
 
-  await wait(300);
-
-  const exp = addOverlay('explain',
+  var exp = addOverlay('explain',
     'A neuron takes inputs, multiplies each by a <span style="color:#ff79c6">weight</span>, sums them up, and passes the result through an <span style="color:#7ec8e3">activation function</span>.',
-    50, 470, 'explain-text');
-  showOverlay(exp, 200);
+    50, 465, 'explain-text');
+  exp.style.maxWidth = '800px';
+  showOverlay(exp, 1400);
+
+  return wait(100);
 }
 
-async function scene2_network() {
+// ── Scene 2: The Network ──────────────────────────────
+function scene2_network() {
   clearCanvas();
 
-  const lbl = addOverlay('lbl2', 'Scene 2: The Network', 30, 20, 'big-label');
+  var lbl = addOverlay('lbl2', 'Scene 2: The Network', 30, 15, 'big-label');
   showOverlay(lbl, 0);
 
-  await wait(200);
-
-  // Draw a 3-layer network
-  const layers = [
+  var layers = [
     { x: 130, nodes: 4, color: YELLOW, label: 'Input' },
     { x: 350, nodes: 5, color: BLUE, label: 'Hidden' },
     { x: 570, nodes: 5, color: BLUE, label: 'Hidden' },
-    { x: 790, nodes: 2, color: GREEN, label: 'Output' },
+    { x: 790, nodes: 2, color: GREEN, label: 'Output' }
   ];
 
-  const nodeCoords = [];
+  var nodeCoords = [];
 
-  for (let l = 0; l < layers.length; l++) {
-    const layer = layers[l];
-    const coords = [];
-    const startY = (H - 30) / 2 - ((layer.nodes - 1) * 70) / 2;
+  for (var l = 0; l < layers.length; l++) {
+    var layer = layers[l];
+    var coords = [];
+    var startY = 260 - ((layer.nodes - 1) * 70) / 2;
 
-    for (let n = 0; n < layer.nodes; n++) {
-      const y = startY + n * 70;
-      coords.push({ x: layer.x, y });
+    for (var n = 0; n < layer.nodes; n++) {
+      coords.push({ x: layer.x, y: startY + n * 70 });
     }
     nodeCoords.push(coords);
   }
 
-  // Draw connections first (dimmer)
-  for (let l = 0; l < nodeCoords.length - 1; l++) {
-    for (const from of nodeCoords[l]) {
-      for (const to of nodeCoords[l + 1]) {
-        rc.line(from.x, from.y, to.x, to.y, {
+  // Connections
+  for (var l = 0; l < nodeCoords.length - 1; l++) {
+    for (var f = 0; f < nodeCoords[l].length; f++) {
+      for (var t = 0; t < nodeCoords[l + 1].length; t++) {
+        rc.line(nodeCoords[l][f].x, nodeCoords[l][f].y, nodeCoords[l + 1][t].x, nodeCoords[l + 1][t].y, {
           stroke: 'rgba(255,255,255,0.08)',
           strokeWidth: 1,
           roughness: 0.8
@@ -408,258 +406,240 @@ async function scene2_network() {
     }
   }
 
-  await wait(300);
-
-  // Draw nodes with animation
-  for (let l = 0; l < layers.length; l++) {
-    const layer = layers[l];
-    for (const coord of nodeCoords[l]) {
-      rc.circle(coord.x, coord.y, 36, roughOpts(layer.color, layer.color));
+  // Nodes
+  for (var l = 0; l < layers.length; l++) {
+    var layer = layers[l];
+    for (var n = 0; n < nodeCoords[l].length; n++) {
+      rc.circle(nodeCoords[l][n].x, nodeCoords[l][n].y, 36, roughOpts(layer.color, layer.color));
     }
 
-    const labelEl = addOverlay('layer' + l, layer.label, layer.x - 25, 470, 'label-text');
+    var labelEl = addOverlay('layer' + l, layer.label, layer.x - 25, 435, 'label-text');
     labelEl.style.color = layer.color;
     labelEl.style.fontSize = '20px';
-    showOverlay(labelEl, 0);
-
-    await wait(250);
+    showOverlay(labelEl, 200 + l * 200);
   }
 
-  await wait(400);
-
-  // Animate a "signal" flowing through — highlight some connections
-  const highlightPath = [
-    { from: nodeCoords[0][1], to: nodeCoords[1][2] },
-    { from: nodeCoords[1][2], to: nodeCoords[2][1] },
-    { from: nodeCoords[2][1], to: nodeCoords[3][0] },
+  // Signal highlight
+  var path = [
+    [nodeCoords[0][1], nodeCoords[1][2]],
+    [nodeCoords[1][2], nodeCoords[2][1]],
+    [nodeCoords[2][1], nodeCoords[3][0]]
   ];
-
-  for (const seg of highlightPath) {
-    rc.line(seg.from.x, seg.from.y, seg.to.x, seg.to.y, {
+  for (var i = 0; i < path.length; i++) {
+    rc.line(path[i][0].x, path[i][0].y, path[i][1].x, path[i][1].y, {
       stroke: ORANGE,
       strokeWidth: 3,
       roughness: 1
     });
-    await wait(350);
   }
 
-  const exp = addOverlay('explain2',
-    'Neurons are organized in <span style="color:#7ec8e3">layers</span>. Data flows forward through the network — each layer transforms the signal, building increasingly abstract representations.',
-    100, 490, 'explain-text');
-  exp.style.maxWidth = '700px';
-  showOverlay(exp, 200);
+  var exp = addOverlay('explain2',
+    'Neurons are organized in <span style="color:#7ec8e3">layers</span>. Data flows forward through the network \u2014 each layer transforms the signal, building increasingly abstract representations.',
+    80, 470, 'explain-text');
+  exp.style.maxWidth = '750px';
+  showOverlay(exp, 1000);
+
+  return wait(100);
 }
 
-async function scene3_learning() {
+// ── Scene 3: Learning ─────────────────────────────────
+function scene3_learning() {
   clearCanvas();
 
-  const lbl = addOverlay('lbl3', 'Scene 3: Learning', 30, 20, 'big-label');
+  var lbl = addOverlay('lbl3', 'Scene 3: Learning', 30, 15, 'big-label');
   showOverlay(lbl, 0);
 
-  await wait(200);
-
-  // Draw a loss curve
-  const chartX = 120;
-  const chartY = 80;
-  const chartW = 650;
-  const chartH = 300;
+  var chartX = 120;
+  var chartY = 70;
+  var chartW = 650;
+  var chartH = 280;
 
   // Axes
   rc.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH, roughOpts(WHITE));
   rc.line(chartX, chartY + chartH, chartX, chartY, roughOpts(WHITE));
 
-  // Axis labels
-  const yLabel = addOverlay('ylabel', 'Error (Loss)', chartX - 40, chartY + 30, 'label-text');
+  var yLabel = addOverlay('ylabel', 'Error', chartX - 20, chartY - 5, 'label-text');
   yLabel.style.fontSize = '18px';
   yLabel.style.color = WHITE;
-  yLabel.style.transform = 'rotate(-90deg)';
   showOverlay(yLabel, 0);
 
-  const xLabel = addOverlay('xlabel', 'Training Steps →', chartX + chartW / 2 - 60, chartY + chartH + 50, 'label-text');
+  var xLabel = addOverlay('xlabel', 'Training Steps \u2192', chartX + chartW / 2 - 60, chartY + chartH + 15, 'label-text');
   xLabel.style.fontSize = '18px';
   xLabel.style.color = WHITE;
   showOverlay(xLabel, 0);
 
-  await wait(300);
-
-  // Animate the loss curve dropping
-  const points = [];
-  for (let i = 0; i <= 50; i++) {
-    const t = i / 50;
-    const x = chartX + t * chartW;
-    const noise = (Math.random() - 0.5) * 20 * (1 - t);
-    const y = chartY + 30 + (chartH - 60) * (0.15 + 0.85 * Math.exp(-3 * t)) + noise;
-    points.push([x, y]);
-  }
-
-  // Draw curve segments progressively
-  for (let i = 1; i < points.length; i++) {
-    rc.line(points[i-1][0], points[i-1][1], points[i][0], points[i][1], {
+  // Loss curve
+  var prevX = chartX;
+  var prevY = chartY + 20;
+  for (var i = 1; i <= 50; i++) {
+    var t = i / 50;
+    var x = chartX + t * chartW;
+    var noise = (Math.sin(i * 3.7) * 12) * (1 - t);
+    var y = chartY + 20 + (chartH - 40) * (0.12 + 0.88 * Math.exp(-3 * t)) + noise;
+    rc.line(prevX, prevY, x, y, {
       stroke: PINK,
       strokeWidth: 2.5,
       roughness: 0.5
     });
-    if (i % 3 === 0) await wait(50);
+    prevX = x;
+    prevY = y;
   }
 
-  await wait(300);
-
-  // Add annotations
-  const highLabel = addOverlay('high', '← starts high!', chartX + 40, chartY + 38, 'label-text');
+  var highLabel = addOverlay('high', '\u2190 starts high!', chartX + 40, chartY + 10, 'label-text');
   highLabel.style.color = PINK;
   highLabel.style.fontSize = '20px';
-  showOverlay(highLabel, 200);
+  showOverlay(highLabel, 400);
 
-  await wait(400);
-
-  const lowLabel = addOverlay('low', 'gets lower ✓', chartX + chartW - 150, chartY + chartH - 70, 'highlight-text');
+  var lowLabel = addOverlay('low', 'gets lower \u2713', chartX + chartW - 160, chartY + chartH - 65, 'highlight-text');
   lowLabel.style.fontSize = '22px';
-  showOverlay(lowLabel, 200);
+  showOverlay(lowLabel, 800);
 
-  await wait(300);
-
-  // Draw weight adjustment arrows
-  const arrowY = chartY + chartH + 100;
+  // Predict → Compare → Adjust loop
+  var arrowY = chartY + chartH + 60;
   rc.rectangle(chartX + 50, arrowY, 150, 50, roughOpts(YELLOW));
-  const predLabel = addOverlay('pred', 'Predict', chartX + 85, arrowY + 52, 'label-text');
+  var predLabel = addOverlay('pred', 'Predict', chartX + 85, arrowY + 12, 'label-text');
   predLabel.style.fontSize = '18px';
   predLabel.style.color = YELLOW;
-  showOverlay(predLabel, 0);
+  showOverlay(predLabel, 1000);
 
-  await wait(200);
+  rc.line(chartX + 200, arrowY + 25, chartX + 270, arrowY + 25, roughOpts(WHITE));
+  rc.line(chartX + 258, arrowY + 16, chartX + 270, arrowY + 25, roughOpts(WHITE));
+  rc.line(chartX + 258, arrowY + 34, chartX + 270, arrowY + 25, roughOpts(WHITE));
 
-  rc.line(chartX + 200, arrowY + 25, chartX + 280, arrowY + 25, roughOpts(WHITE));
-  rc.line(chartX + 265, arrowY + 15, chartX + 280, arrowY + 25, roughOpts(WHITE));
-  rc.line(chartX + 265, arrowY + 35, chartX + 280, arrowY + 25, roughOpts(WHITE));
-
-  rc.rectangle(chartX + 280, arrowY, 170, 50, roughOpts(PINK));
-  const compLabel = addOverlay('comp', 'Compare', chartX + 315, arrowY + 52, 'label-text');
+  rc.rectangle(chartX + 270, arrowY, 170, 50, roughOpts(PINK));
+  var compLabel = addOverlay('comp', 'Compare', chartX + 305, arrowY + 12, 'label-text');
   compLabel.style.fontSize = '18px';
   compLabel.style.color = PINK;
-  showOverlay(compLabel, 0);
+  showOverlay(compLabel, 1200);
 
-  await wait(200);
+  rc.line(chartX + 440, arrowY + 25, chartX + 510, arrowY + 25, roughOpts(WHITE));
+  rc.line(chartX + 498, arrowY + 16, chartX + 510, arrowY + 25, roughOpts(WHITE));
+  rc.line(chartX + 498, arrowY + 34, chartX + 510, arrowY + 25, roughOpts(WHITE));
 
-  rc.line(chartX + 450, arrowY + 25, chartX + 530, arrowY + 25, roughOpts(WHITE));
-  rc.line(chartX + 515, arrowY + 15, chartX + 530, arrowY + 25, roughOpts(WHITE));
-  rc.line(chartX + 515, arrowY + 35, chartX + 530, arrowY + 25, roughOpts(WHITE));
-
-  rc.rectangle(chartX + 530, arrowY, 160, 50, roughOpts(GREEN));
-  const adjLabel = addOverlay('adj', 'Adjust', chartX + 570, arrowY + 52, 'label-text');
+  rc.rectangle(chartX + 510, arrowY, 160, 50, roughOpts(GREEN));
+  var adjLabel = addOverlay('adj', 'Adjust', chartX + 548, arrowY + 12, 'label-text');
   adjLabel.style.fontSize = '18px';
   adjLabel.style.color = GREEN;
-  showOverlay(adjLabel, 0);
-
-  await wait(300);
+  showOverlay(adjLabel, 1400);
 
   // Curved arrow back
-  rc.path(`M ${chartX + 690} ${arrowY + 25} Q ${chartX + 730} ${arrowY - 40} ${chartX + 125} ${arrowY - 5}`, roughOpts(ORANGE));
+  rc.path('M ' + (chartX + 670) + ' ' + (arrowY + 25) + ' Q ' + (chartX + 710) + ' ' + (arrowY - 30) + ' ' + (chartX + 125) + ' ' + (arrowY - 5), roughOpts(ORANGE));
 
-  const repeatLabel = addOverlay('repeat', 'repeat!', chartX + 380, arrowY - 40, 'label-text');
+  var repeatLabel = addOverlay('repeat', 'repeat!', chartX + 360, arrowY - 30, 'label-text');
   repeatLabel.style.color = ORANGE;
   repeatLabel.style.fontSize = '20px';
-  showOverlay(repeatLabel, 200);
+  showOverlay(repeatLabel, 1600);
+
+  return wait(100);
 }
 
-async function scene4_conclusion() {
+// ── Scene 4: Conclusion ───────────────────────────────
+function scene4_conclusion() {
   clearCanvas();
 
-  const lbl = addOverlay('lbl4', 'The Big Picture', 30, 20, 'big-label');
+  var lbl = addOverlay('lbl4', 'The Big Picture', 30, 15, 'big-label');
   showOverlay(lbl, 0);
 
-  await wait(300);
-
-  // Draw 3 concept boxes
-  const concepts = [
-    { x: 80, y: 120, w: 220, h: 140, color: YELLOW, title: '1. Structure', desc: 'Neurons organized in layers form a network' },
-    { x: 340, y: 120, w: 220, h: 140, color: BLUE, title: '2. Forward Pass', desc: 'Data flows through, getting transformed at each layer' },
-    { x: 600, y: 120, w: 220, h: 140, color: GREEN, title: '3. Learning', desc: 'Adjust weights to reduce error, repeat thousands of times' },
+  var concepts = [
+    { x: 80, y: 100, w: 220, h: 140, color: YELLOW, title: '1. Structure', desc: 'Neurons organized in layers form a network' },
+    { x: 340, y: 100, w: 220, h: 140, color: BLUE, title: '2. Forward Pass', desc: 'Data flows through, getting transformed at each layer' },
+    { x: 600, y: 100, w: 220, h: 140, color: GREEN, title: '3. Learning', desc: 'Adjust weights to reduce error, repeat thousands of times' }
   ];
 
-  for (let i = 0; i < concepts.length; i++) {
-    const c = concepts[i];
-    rc.rectangle(c.x, c.y, c.w, c.h, roughOpts(c.color, `${c.color}22`));
+  for (var i = 0; i < concepts.length; i++) {
+    var c = concepts[i];
+    rc.rectangle(c.x, c.y, c.w, c.h, roughOpts(c.color, c.color + '22'));
 
-    const titleEl = addOverlay('ct' + i, c.title, c.x + 15, c.y + 70, 'label-text');
+    var titleEl = addOverlay('ct' + i, c.title, c.x + 15, c.y + 15, 'label-text');
     titleEl.style.color = c.color;
     titleEl.style.fontSize = '22px';
-    showOverlay(titleEl, 200);
+    showOverlay(titleEl, 300 + i * 300);
 
-    const descEl = addOverlay('cd' + i, c.desc, c.x + 15, c.y + 100, 'explain-text');
+    var descEl = addOverlay('cd' + i, c.desc, c.x + 15, c.y + 50, 'explain-text');
     descEl.style.fontSize = '16px';
     descEl.style.maxWidth = (c.w - 30) + 'px';
-    showOverlay(descEl, 400);
+    showOverlay(descEl, 500 + i * 300);
 
-    // Arrow to next
     if (i < concepts.length - 1) {
       rc.line(c.x + c.w + 5, c.y + c.h / 2, c.x + c.w + 35, c.y + c.h / 2, roughOpts(WHITE));
       rc.line(c.x + c.w + 25, c.y + c.h / 2 - 8, c.x + c.w + 35, c.y + c.h / 2, roughOpts(WHITE));
       rc.line(c.x + c.w + 25, c.y + c.h / 2 + 8, c.x + c.w + 35, c.y + c.h / 2, roughOpts(WHITE));
     }
-
-    await wait(500);
   }
 
-  await wait(400);
+  rc.rectangle(200, 300, 500, 160, roughOpts(ORANGE, 'rgba(255,184,108,0.08)'));
 
-  // Final message
-  rc.rectangle(200, 320, 500, 160, roughOpts(ORANGE, 'rgba(255,184,108,0.08)'));
-
-  const final1 = addOverlay('final1', 'That\'s the core loop:', 240, 375, 'label-text');
+  var final1 = addOverlay('final1', 'That\'s the core loop:', 240, 320, 'label-text');
   final1.style.color = ORANGE;
   final1.style.fontSize = '24px';
-  showOverlay(final1, 200);
+  showOverlay(final1, 1200);
 
-  await wait(300);
-
-  const final2 = addOverlay('final2',
-    '<span style="color:#ffd966">Feed data</span> → <span style="color:#ff79c6">measure error</span> → <span style="color:#50fa7b">adjust weights</span>',
-    240, 410, 'explain-text');
+  var final2 = addOverlay('final2',
+    '<span style="color:#ffd966">Feed data</span> \u2192 <span style="color:#ff79c6">measure error</span> \u2192 <span style="color:#50fa7b">adjust weights</span>',
+    240, 360, 'explain-text');
   final2.style.fontSize = '22px';
-  showOverlay(final2, 200);
+  showOverlay(final2, 1500);
 
-  await wait(300);
-
-  const final3 = addOverlay('final3', 'Do this a million times and you\'ve got AI.', 260, 450, 'explain-text');
+  var final3 = addOverlay('final3', 'Do this a million times and you\'ve got AI.', 255, 400, 'explain-text');
   final3.style.fontSize = '20px';
   final3.style.color = 'rgba(255,255,255,0.5)';
-  showOverlay(final3, 400);
+  showOverlay(final3, 1800);
 
-  await wait(300);
-
-  // Decorative sketchy elements
   rc.circle(130, 420, 50, roughOpts(DIM));
   rc.circle(770, 370, 35, roughOpts(DIM));
   rc.line(720, 480, 800, 460, roughOpts(DIM));
+
+  return wait(100);
 }
 
 // ── Scene Management ──────────────────────────────────
-const scenes = [scene0_title, scene1_neurons, scene2_network, scene3_learning, scene4_conclusion];
+var scenes = [scene0_title, scene1_neurons, scene2_network, scene3_learning, scene4_conclusion];
 
 function updateUI() {
-  sceneLabel.textContent = `Scene ${currentScene + 1} / ${totalScenes}`;
+  sceneLabel.textContent = 'Scene ' + (currentScene + 1) + ' / ' + totalScenes;
   prevBtn.disabled = currentScene === 0;
   nextBtn.disabled = currentScene === totalScenes - 1;
-  document.querySelectorAll('.dot').forEach((d, i) => {
-    d.classList.toggle('active', i === currentScene);
+  var dots = document.querySelectorAll('.dot');
+  for (var i = 0; i < dots.length; i++) {
+    if (i === currentScene) {
+      dots[i].classList.add('active');
+    } else {
+      dots[i].classList.remove('active');
+    }
+  }
+}
+
+function goToScene(index) {
+  if (index < 0 || index >= totalScenes || isTransitioning) return;
+  isTransitioning = true;
+  currentScene = index;
+  updateUI();
+  scenes[currentScene]().then(function() {
+    isTransitioning = false;
   });
 }
 
-async function goToScene(index) {
-  if (index < 0 || index >= totalScenes) return;
-  currentScene = index;
-  updateUI();
-  await scenes[currentScene]();
-}
-
-prevBtn.addEventListener('click', () => goToScene(currentScene - 1));
-nextBtn.addEventListener('click', () => goToScene(currentScene + 1));
+prevBtn.addEventListener('click', function() { goToScene(currentScene - 1); });
+nextBtn.addEventListener('click', function() { goToScene(currentScene + 1); });
 
 // Keyboard nav
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', function(e) {
   if (e.key === 'ArrowRight' || e.key === ' ') goToScene(currentScene + 1);
   if (e.key === 'ArrowLeft') goToScene(currentScene - 1);
 });
+
+// Touch swipe support
+var touchStartX = 0;
+document.addEventListener('touchstart', function(e) {
+  touchStartX = e.changedTouches[0].screenX;
+}, { passive: true });
+document.addEventListener('touchend', function(e) {
+  var diff = e.changedTouches[0].screenX - touchStartX;
+  if (Math.abs(diff) > 50) {
+    if (diff < 0) goToScene(currentScene + 1);
+    else goToScene(currentScene - 1);
+  }
+}, { passive: true });
 
 // Start
 goToScene(0);
